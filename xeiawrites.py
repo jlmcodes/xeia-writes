@@ -7,8 +7,7 @@ from spellchecker import SpellChecker
 from fpdf import FPDF
 
 # --- Page Configuration & Strict Layout Control ---
-# THE FIX: Added page_icon="logo.png" right here!
-st.set_page_config(page_title="Xeia Writes", page_icon="xeiawrites-logo.png", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Xeia Writes", page_icon="logo.png", layout="wide", initial_sidebar_state="collapsed")
 
 # --- Callbacks & Helpers ---
 def ignore_lapse(lapse_id, category_key): 
@@ -318,7 +317,9 @@ def generate_pdf(active_lapses, f_score, s_score, total_paras):
         pdf.set_text_color(69, 91, 48)
         pdf.cell(0, 10, 'Flawless Execution! No active lapses found.', align='C')
 
-    return bytes(pdf.output())
+    # THE FIX: Bulletproof encoding output to prevent Streamlit Cloud TypeError
+    pdf_out = pdf.output(dest='S')
+    return pdf_out.encode('latin-1') if isinstance(pdf_out, str) else bytes(pdf_out)
 
 # --- Analysis Logic ---
 def analyze_document(file, exp_font, exp_size, exp_spacing, exp_indent, number_rule, check_spelling, check_duplicates):
@@ -344,25 +345,6 @@ def analyze_document(file, exp_font, exp_size, exp_spacing, exp_indent, number_r
         total_paras += 1
         para_num = i + 1 
         
-        # Universal Contextual Double Enter Scanner
-        if not text:
-            if i < len(paragraphs) - 1: 
-                prev_text = paragraphs[i-1].text.strip() if i > 0 else ""
-                next_text = paragraphs[i+1].text.strip()
-                
-                prev_ctx = (prev_text[-40:] if len(prev_text) > 40 else prev_text)
-                if prev_ctx and prev_ctx != prev_text: prev_ctx = "..." + prev_ctx
-                
-                next_ctx = (next_text[:40] if len(next_text) > 40 else next_text)
-                if next_ctx and next_ctx != next_text: next_ctx = next_ctx + "..."
-                
-                context_snippet = f"{prev_ctx} <br><span style='color:#AEA743; font-weight:700;'>[Double Enter Detected Here]</span><br> {next_ctx}"
-                
-                lapse_counter[0] += 1
-                lapse_id = f"breaks_{para_num}_{lapse_counter[0]}_{uuid.uuid4().hex[:6]}"
-                lapses["breaks"].append((para_num, context_snippet, "Spacing Error: Found an extra empty line (Double Enter). Please remove it and use paragraph spacing settings instead.", lapse_id))
-            continue
-
         def add_lapse(category, msg, match_start=None, match_end=None, highlight=None):
             lapse_counter[0] += 1
             lapse_id = f"{category}_{para_num}_{lapse_counter[0]}_{uuid.uuid4().hex[:6]}"
@@ -373,7 +355,6 @@ def analyze_document(file, exp_font, exp_size, exp_spacing, exp_indent, number_r
         if cleaned_text in ["references", "bibliography", "works cited"] or (cleaned_text.endswith("references") and len(cleaned_text) < 20):
             in_references_section = True
 
-        # --- Enhanced Heading Detection & Syllabus Exemption ---
         is_heading = False
         text_for_numbers = text
         heading_match = re.match(r'^(CHAPTER\s*\d+|[1-9](?:\.\d+[a-zA-Z]?)*)\s*[:\-]?\s*(.+)', text, re.IGNORECASE)
@@ -422,7 +403,6 @@ def analyze_document(file, exp_font, exp_size, exp_spacing, exp_indent, number_r
             if is_italic:
                 add_lapse("headings", f"Formatting Error: The heading '{section_num} {section_title}' contains italicized text, which is strictly prohibited.", heading_match.start(), heading_match.end(), highlight=text)
 
-        # --- In-Text Citation Traps ---
         et_al_trap = re.search(r'\bet\.\s*al\.', cleaned_text)
         if et_al_trap:
             add_lapse("ref_apa", "In-text Citation Error: Use 'et al.' (no period after 'et') instead of 'et. al.'", et_al_trap.start(), et_al_trap.end(), highlight="et. al.")
