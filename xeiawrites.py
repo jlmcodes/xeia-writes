@@ -7,7 +7,8 @@ from spellchecker import SpellChecker
 from fpdf import FPDF
 
 # --- Page Configuration & Strict Layout Control ---
-st.set_page_config(page_title="Xeia Writes", layout="wide", initial_sidebar_state="collapsed")
+# THE FIX: Added page_icon="logo.png" right here!
+st.set_page_config(page_title="Xeia Writes", page_icon="xeiawrites-logo.png", layout="wide", initial_sidebar_state="collapsed")
 
 # --- Callbacks & Helpers ---
 def ignore_lapse(lapse_id, category_key): 
@@ -282,7 +283,6 @@ def generate_pdf(active_lapses, f_score, s_score, total_paras):
             for lapse in lapses_in_cat:
                 para, snippet, msg, _ = lapse
                 
-                # HTML SCRUB FOR PDF COMPATIBILITY
                 clean_msg = msg.replace('<br>', '\n')
                 clean_msg = re.sub(r'<[^>]+>', '', clean_msg).replace('➔', '->').replace('Applicability Check:', '\nApplicability Check:')
                 clean_msg = clean_for_pdf(clean_msg)
@@ -344,7 +344,7 @@ def analyze_document(file, exp_font, exp_size, exp_spacing, exp_indent, number_r
         total_paras += 1
         para_num = i + 1 
         
-        # --- Universal Contextual Double Enter Scanner ---
+        # Universal Contextual Double Enter Scanner
         if not text:
             if i < len(paragraphs) - 1: 
                 prev_text = paragraphs[i-1].text.strip() if i > 0 else ""
@@ -421,10 +421,6 @@ def analyze_document(file, exp_font, exp_size, exp_spacing, exp_indent, number_r
                 add_lapse("headings", f"Formatting Error: The heading '{section_num} {section_title}' must be in Bold.", heading_match.start(), heading_match.end(), highlight=text)
             if is_italic:
                 add_lapse("headings", f"Formatting Error: The heading '{section_num} {section_title}' contains italicized text, which is strictly prohibited.", heading_match.start(), heading_match.end(), highlight=text)
-                
-            # Soft Break inside Title
-            if '\n' in raw_text or '\x0b' in raw_text:
-                 add_lapse("breaks", "Spacing Error: Found a manual soft break (Shift+Enter) inside title. Please remove it.")
 
         # --- In-Text Citation Traps ---
         et_al_trap = re.search(r'\bet\.\s*al\.', cleaned_text)
@@ -445,6 +441,10 @@ def analyze_document(file, exp_font, exp_size, exp_spacing, exp_indent, number_r
                     found_word = match.group(1) if len(match.groups()) > 0 else match.group(0)
                     msg = f"Instead of '{found_word}', consider using <b>{suggestion}</b>.<br><span style='font-size: 0.8rem; color:#455B30; font-style:italic;'><b>Xeia's Critique:</b> {critique}</span>"
                     add_lapse("suggestions", msg, match.start(), match.end(), highlight=found_word)
+
+        if is_heading and not in_references_section:
+            if '\n' in raw_text or '\x0b' in raw_text:
+                 add_lapse("breaks", "Spacing Error: Found a manual soft break (Shift+Enter) inside title. Please remove it.")
 
         if in_references_section and not is_heading:
             if p.paragraph_format.line_spacing not in [1.0, 1]: add_lapse("ref_spacing", "Reference entry must be strictly Single Spaced.")
