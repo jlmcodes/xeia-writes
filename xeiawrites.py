@@ -3,11 +3,27 @@ import docx
 import re
 import uuid
 import pandas as pd
+import base64
+import os
+import glob
 from spellchecker import SpellChecker
 from fpdf import FPDF
 
+# --- Smart Logo Finder (Fixes GitHub Case-Sensitivity Issues) ---
+logo_filename = "xeiawrites-logo.png"
+for f in glob.glob("*.png") + glob.glob("*.PNG") + glob.glob("*.jpg") + glob.glob("*.jpeg"):
+    if "logo" in f.lower():
+        logo_filename = f
+        break
+
+def get_base64_image(file_path):
+    if os.path.exists(file_path):
+        with open(file_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode()
+    return None
+
 # --- Page Configuration & Strict Layout Control ---
-st.set_page_config(page_title="Xeia Writes", page_icon="logo.png", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Xeia Writes", page_icon=logo_filename, layout="wide", initial_sidebar_state="collapsed")
 
 # --- Callbacks & Helpers ---
 def ignore_lapse(lapse_id, category_key): 
@@ -490,7 +506,6 @@ def analyze_document(file, exp_font, exp_size, exp_spacing, exp_indent, number_r
 
 # --- Master Application ---
 def main():
-    # --- Authentication & State Management ---
     if 'authenticated' not in st.session_state: st.session_state.authenticated = False
     if 'dark_mode' not in st.session_state: st.session_state.dark_mode = False
     if 'ignored_lapses' not in st.session_state: st.session_state.ignored_lapses = set()
@@ -498,7 +513,6 @@ def main():
     if 'total_paras' not in st.session_state: st.session_state.total_paras = 0
     if 'open_lapses_category' not in st.session_state: st.session_state.open_lapses_category = None
 
-    # --- Dynamic Theme Engine Variables ---
     bg_color = "#1A1D1A" if st.session_state.dark_mode else "#FAFCF7"
     text_color = "#C5C9BC" if st.session_state.dark_mode else "#455B30"
     heading_color = "#FAFCF7" if st.session_state.dark_mode else "#23371D"
@@ -507,25 +521,20 @@ def main():
     box_bg = "#1A1D1A" if st.session_state.dark_mode else "rgba(250, 252, 247, 0.8)"
     menu_bg = "rgba(26, 29, 26, 0.95)" if st.session_state.dark_mode else "rgba(250, 252, 247, 0.95)"
     
-    # THE FIX: Absolute overriding of Streamlit's native `stApp` background container!
     st.markdown(f"""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,500&family=Poppins:wght@300;400;500;600&display=swap');
         
-        /* Absolute Background Override for Night Mode */
         [data-testid="stAppViewContainer"] {{ background-color: {bg_color} !important; transition: all 0.3s ease; }}
         [data-testid="stHeader"] {{ background-color: transparent !important; }}
         
-        /* Typography overrides */
         html, body, p, span, label, div {{ font-family: 'Poppins', sans-serif; color: {text_color}; transition: color 0.3s ease; }}
         h1, h2, h3, h4, h5, h6 {{ font-family: 'Playfair Display', serif !important; color: {heading_color} !important; }}
         
-        /* THE FIX: Stop the buttons and expanders from squishing text! */
-        button[kind="primary"] {{ white-space: nowrap !important; }}
-        button[kind="secondary"] {{ white-space: nowrap !important; }}
+        /* THE FIX: Stop buttons from squishing text! */
+        button[kind="primary"], button[kind="secondary"] {{ white-space: nowrap !important; min-width: max-content; }}
         button[kind="primary"] * {{ color: white !important; white-space: nowrap !important;}}
         
-        /* Input Field styling for dark mode */
         input {{ background-color: {card_bg} !important; color: {heading_color} !important; border-color: {card_border} !important; }}
         
         [data-testid="stSidebar"] {{ display: none !important; }}
@@ -533,13 +542,12 @@ def main():
         .block-container {{ padding-top: 0rem !important; max-width: 1100px; }}
         [data-testid="stStatusWidget"] {{ visibility: hidden !important; display: none !important; }}
         
-        /* MAIN APP STYLES */
-        .top-menu {{ display: flex; justify-content: space-between; align-items: center; padding: 15px 30px; font-size: 0.8rem; font-weight: 500; letter-spacing: 1px; border-bottom: 1px solid {card_border}; background-color: {menu_bg}; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(5px); transition: all 0.3s ease;}}
+        /* ALIGNMENT FIX: Matched padding to align exactly with the Streamlit toggle */
+        .top-menu {{ display: flex; justify-content: space-between; align-items: center; padding: 12px 0 0 0; font-size: 0.8rem; font-weight: 500; letter-spacing: 1px; border-bottom: 1px solid {card_border}; background-color: {menu_bg}; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(5px); transition: all 0.3s ease;}}
         .top-menu a {{ text-decoration: none; color: {text_color} !important; transition: 0.2s; cursor: pointer; }}
         .top-menu a:hover {{ color: #8FB3DE !important; }}
         
         .hero-container {{ display: flex; flex-direction: column; align-items: center; text-align: center; width: 100%; margin-top: 30px;}}
-        .hero-logo-container img {{ height: 140px; mix-blend-mode: multiply; margin-bottom: 20px; filter: {'brightness(0) invert(1) opacity(0.8)' if st.session_state.dark_mode else 'none'};}}
         .hero-title {{ font-size: 4rem; font-weight: 700; margin-bottom: 0px; letter-spacing: -1px; }}
         .hero-subtitle {{ font-size: 1.1rem; color: #8FB3DE !important; font-family: 'Playfair Display', serif; font-style: italic; margin-top: 0; margin-bottom: 20px;}}
         .hero-text {{ max-width: 600px; line-height: 1.6; margin-bottom: 50px;}}
@@ -571,7 +579,6 @@ def main():
         .metric-value {{ font-family: 'Playfair Display', serif; font-size: 2.5rem; color: {heading_color}; line-height: 1.2;}}
         .progress-bg {{ width: 100%; background-color: {card_border}; border-radius: 10px; height: 6px; margin-top: 5px; overflow: hidden;}}
         
-        /* OWNERSHIP AND DISCLAIMER CSS */
         .owner-text {{ font-size: 0.85rem; color: {text_color}; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; margin-top: 5px; margin-bottom: 15px;}}
         .disclaimer-text {{ font-size: 0.75rem; color: #A0AAB2; text-align: center; margin-top: 60px; padding-top: 20px; border-top: 1px solid {card_border}; line-height: 1.6; padding-bottom: 20px;}}
         
@@ -584,6 +591,10 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
+    # --- HTML Logo Encoder ---
+    logo_b64 = get_base64_image(logo_filename)
+    logo_img_tag = f'<img src="data:image/png;base64,{logo_b64}" width="100" style="margin-bottom:15px; filter: {"brightness(0) invert(1) opacity(0.8)" if st.session_state.dark_mode else "none"};">' if logo_b64 else ''
+
     # --- ROUTING: Login vs Main App ---
     if not st.session_state.authenticated:
         st.markdown("<br><br><br><br>", unsafe_allow_html=True)
@@ -591,16 +602,18 @@ def main():
         
         with c2:
             st.markdown(f"""
-            <div style="text-align: center; background-color: {card_bg}; padding: 40px; border-radius: 20px; border: 1px solid {card_border}; box-shadow: 0 10px 30px rgba(0,0,0,0.1);">
-                <img src="logo.png" width="90" style="margin-bottom:15px; filter: {'brightness(0) invert(1) opacity(0.8)' if st.session_state.dark_mode else 'none'};" onerror="this.style.display='none'">
-                <h1 style="font-size: 3rem; margin-bottom: 0px; color: {heading_color}; font-family: 'Playfair Display', serif;">Xeia Writes</h1>
+            <div style="text-align: center; background-color: {card_bg}; padding: 40px 40px 10px 40px; border-radius: 20px 20px 0 0; border: 1px solid {card_border}; border-bottom: none; box-shadow: 0 10px 30px rgba(0,0,0,0.1);">
+                {logo_img_tag}
+                <h1 style="font-size: 3rem; margin-bottom: 0px; color: {heading_color}; font-family: 'Playfair Display', serif; margin-top:-10px;">Xeia Writes</h1>
                 <p class="owner-text">Owned by Jaynard L. Monleon</p>
                 <p style="color: #8FB3DE !important; font-family: 'Playfair Display', serif; font-style: italic; margin-top: 0px; margin-bottom: 30px; font-size: 1.1rem;">Restricted Academic Portal</p>
             </div>
             """, unsafe_allow_html=True)
             
-            st.markdown("<div style='margin-top: -20px;'></div>", unsafe_allow_html=True)
-            auth_name = st.text_input("Enter Authorized Signature", placeholder="First Last", label_visibility="collapsed")
+            st.markdown(f"""<div style="background-color: {card_bg}; padding: 0 40px 40px 40px; border-radius: 0 0 20px 20px; border: 1px solid {card_border}; border-top: none; box-shadow: 0 10px 30px rgba(0,0,0,0.1);">""", unsafe_allow_html=True)
+            
+            # THE FIX: Updated Placeholder!
+            auth_name = st.text_input("Enter Authorized Signature", placeholder="Enter authorized name to proceed", label_visibility="collapsed")
             
             if st.button("Access Studio", type="primary", use_container_width=True):
                 allowed_users = ["ksd bellen", "ip logroño", "jl monleon", "ej lacson"]
@@ -609,8 +622,8 @@ def main():
                     st.rerun()
                 else:
                     st.error("Unauthorized signature. Access denied.")
+            st.markdown("</div>", unsafe_allow_html=True)
             
-            # Login Disclaimer
             st.markdown("""
             <div class="disclaimer-text" style="margin-top: 40px; border: none;">
                 <strong>LEGAL DISCLAIMER:</strong> Any unauthorized distribution, reproduction, or dissemination of this link or its contents without the explicit notice and consent of the owner is considered illegal and strictly prohibited. Violators will be subject to appropriate legal action under the Intellectual Property Code of the Philippines (Republic Act No. 8293, Sec. 177).
@@ -622,7 +635,7 @@ def main():
     c_menu, c_toggle = st.columns([8, 2])
     with c_menu:
         st.markdown("""
-            <div class="top-menu" style="background:transparent; border:none; padding:10px 0;">
+            <div class="top-menu" style="background:transparent; border:none; padding: 12px 0 0 0;">
                 <a href="#about-section">(ABOUT)</a>
                 <a href="#configuration-section">(CONFIGURATION)</a>
                 <a href="#analysis-section">(ANALYSIS)</a>
@@ -630,22 +643,17 @@ def main():
             </div>
         """, unsafe_allow_html=True)
     with c_toggle:
-        st.markdown("<div style='margin-top: 5px; display:flex; justify-content:flex-end;'>", unsafe_allow_html=True)
+        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
         dark_toggle = st.toggle("🌙 Night Mode", value=st.session_state.dark_mode)
         if dark_toggle != st.session_state.dark_mode:
             st.session_state.dark_mode = dark_toggle
             st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown(f"<hr style='margin-top:0; border-top: 1px solid {card_border};'>", unsafe_allow_html=True)
+    st.markdown(f"<hr style='margin-top: 15px; border-top: 1px solid {card_border};'>", unsafe_allow_html=True)
 
     st.markdown("<div id='about-section'></div>", unsafe_allow_html=True)
     st.markdown("<div class='hero-container'>", unsafe_allow_html=True)
-    try:
-        st.markdown("<div class='hero-logo-container'>", unsafe_allow_html=True)
-        st.image("logo.png", width=120)
-        st.markdown("</div>", unsafe_allow_html=True)
-    except: pass 
+    st.markdown(f"{logo_img_tag}", unsafe_allow_html=True)
         
     st.markdown(f"""
         <h1 class="hero-title">Xeia Writes</h1>
@@ -751,8 +759,7 @@ def main():
             
         st.markdown(f"<hr style='border: 1px solid {card_border};'>", unsafe_allow_html=True)
 
-        # THE FIX: Adjusted column width ratio so nothing wraps!
-        col_lapses, col_side = st.columns([2.4, 1.2])
+        col_lapses, col_side = st.columns([2.6, 1.2])
 
         with col_lapses:
             st.markdown(f"<h2 style='color:{heading_color};'>Detailed Lapses Dashboard</h2>", unsafe_allow_html=True)
@@ -763,7 +770,7 @@ def main():
                 with st.expander(f"{title} ({len(data)} items)", expanded=is_open):
                     for lapse in data:
                         para, snippet, msg, lapse_id = lapse
-                        c_text, c_btn = st.columns([4.5, 1.2])
+                        c_text, c_btn = st.columns([5, 1])
                         with c_text:
                             st.markdown(f"<div class='finding-box' style='border-left-color:{color};'><strong>Paragraph {para}:</strong> <span style='color: {heading_color};'>{msg}</span><br><span style='color: #8FB3DE; font-size: 0.85rem;'>\"{snippet}\"</span></div>", unsafe_allow_html=True)
                         with c_btn:
@@ -837,7 +844,6 @@ def main():
             </div>
             """, unsafe_allow_html=True)
 
-    # --- MAIN APP DISCLAIMER FOOTER ---
     if st.session_state.authenticated:
         st.markdown(f"""
         <div class="disclaimer-text">
