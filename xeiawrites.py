@@ -520,8 +520,10 @@ def main():
         html, body, p, span, label, div {{ font-family: 'Poppins', sans-serif; color: {text_color}; transition: color 0.3s ease; }}
         h1, h2, h3, h4, h5, h6 {{ font-family: 'Playfair Display', serif !important; color: {heading_color} !important; }}
         
-        /* Protect Buttons from generic overrides */
-        button[kind="primary"] * {{ color: white !important; }}
+        /* THE FIX: Stop the buttons and expanders from squishing text! */
+        button[kind="primary"] {{ white-space: nowrap !important; }}
+        button[kind="secondary"] {{ white-space: nowrap !important; }}
+        button[kind="primary"] * {{ color: white !important; white-space: nowrap !important;}}
         
         /* Input Field styling for dark mode */
         input {{ background-color: {card_bg} !important; color: {heading_color} !important; border-color: {card_border} !important; }}
@@ -569,6 +571,10 @@ def main():
         .metric-value {{ font-family: 'Playfair Display', serif; font-size: 2.5rem; color: {heading_color}; line-height: 1.2;}}
         .progress-bg {{ width: 100%; background-color: {card_border}; border-radius: 10px; height: 6px; margin-top: 5px; overflow: hidden;}}
         
+        /* OWNERSHIP AND DISCLAIMER CSS */
+        .owner-text {{ font-size: 0.85rem; color: {text_color}; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; margin-top: 5px; margin-bottom: 15px;}}
+        .disclaimer-text {{ font-size: 0.75rem; color: #A0AAB2; text-align: center; margin-top: 60px; padding-top: 20px; border-top: 1px solid {card_border}; line-height: 1.6; padding-bottom: 20px;}}
+        
         .magic-dots {{ display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 15px; padding-bottom: 5px;}}
         .magic-dots div {{ width: 12px; height: 12px; border-radius: 50%; background-color: #AEA743; animation: pixie-bounce 1.4s infinite ease-in-out both; box-shadow: 0 0 10px #AEA743; }}
         .magic-dots div:nth-child(1) {{ animation-delay: -0.32s; background-color: #8FB3DE; box-shadow: 0 0 10px #8FB3DE;}}
@@ -579,7 +585,6 @@ def main():
     """, unsafe_allow_html=True)
 
     # --- ROUTING: Login vs Main App ---
-    # THE FIX: Using clean Streamlit columns to prevent the "Ghost Box" HTML error!
     if not st.session_state.authenticated:
         st.markdown("<br><br><br><br>", unsafe_allow_html=True)
         c1, c2, c3 = st.columns([1.5, 2, 1.5])
@@ -589,11 +594,12 @@ def main():
             <div style="text-align: center; background-color: {card_bg}; padding: 40px; border-radius: 20px; border: 1px solid {card_border}; box-shadow: 0 10px 30px rgba(0,0,0,0.1);">
                 <img src="logo.png" width="90" style="margin-bottom:15px; filter: {'brightness(0) invert(1) opacity(0.8)' if st.session_state.dark_mode else 'none'};" onerror="this.style.display='none'">
                 <h1 style="font-size: 3rem; margin-bottom: 0px; color: {heading_color}; font-family: 'Playfair Display', serif;">Xeia Writes</h1>
-                <p style="color: #8FB3DE !important; font-family: 'Playfair Display', serif; font-style: italic; margin-top: -10px; margin-bottom: 30px; font-size: 1.1rem;">Restricted Academic Portal</p>
+                <p class="owner-text">Owned by Jaynard L. Monleon</p>
+                <p style="color: #8FB3DE !important; font-family: 'Playfair Display', serif; font-style: italic; margin-top: 0px; margin-bottom: 30px; font-size: 1.1rem;">Restricted Academic Portal</p>
             </div>
             """, unsafe_allow_html=True)
             
-            st.markdown("<div style='margin-top: -20px;'></div>", unsafe_allow_html=True) # Sneaky layout adjustment
+            st.markdown("<div style='margin-top: -20px;'></div>", unsafe_allow_html=True)
             auth_name = st.text_input("Enter Authorized Signature", placeholder="First Last", label_visibility="collapsed")
             
             if st.button("Access Studio", type="primary", use_container_width=True):
@@ -603,6 +609,13 @@ def main():
                     st.rerun()
                 else:
                     st.error("Unauthorized signature. Access denied.")
+            
+            # Login Disclaimer
+            st.markdown("""
+            <div class="disclaimer-text" style="margin-top: 40px; border: none;">
+                <strong>LEGAL DISCLAIMER:</strong> Any unauthorized distribution, reproduction, or dissemination of this link or its contents without the explicit notice and consent of the owner is considered illegal and strictly prohibited. Violators will be subject to appropriate legal action under the Intellectual Property Code of the Philippines (Republic Act No. 8293, Sec. 177).
+            </div>
+            """, unsafe_allow_html=True)
         return
 
     # --- MAIN DASHBOARD (Only executes if Authenticated) ---
@@ -636,6 +649,7 @@ def main():
         
     st.markdown(f"""
         <h1 class="hero-title">Xeia Writes</h1>
+        <p class="owner-text" style="margin-top: 0px; margin-bottom: 5px;">Owned by Jaynard L. Monleon</p>
         <p class="hero-subtitle">a new academic paradigm</p>
         <p class="hero-text">Join the journey towards better understanding your documents, beautifully formatting your feasibility studies, and unapologetically maintaining pristine APA references.</p>
         </div>
@@ -737,7 +751,8 @@ def main():
             
         st.markdown(f"<hr style='border: 1px solid {card_border};'>", unsafe_allow_html=True)
 
-        col_lapses, col_side = st.columns([2.5, 1])
+        # THE FIX: Adjusted column width ratio so nothing wraps!
+        col_lapses, col_side = st.columns([2.4, 1.2])
 
         with col_lapses:
             st.markdown(f"<h2 style='color:{heading_color};'>Detailed Lapses Dashboard</h2>", unsafe_allow_html=True)
@@ -748,7 +763,7 @@ def main():
                 with st.expander(f"{title} ({len(data)} items)", expanded=is_open):
                     for lapse in data:
                         para, snippet, msg, lapse_id = lapse
-                        c_text, c_btn = st.columns([6, 1])
+                        c_text, c_btn = st.columns([4.5, 1.2])
                         with c_text:
                             st.markdown(f"<div class='finding-box' style='border-left-color:{color};'><strong>Paragraph {para}:</strong> <span style='color: {heading_color};'>{msg}</span><br><span style='color: #8FB3DE; font-size: 0.85rem;'>\"{snippet}\"</span></div>", unsafe_allow_html=True)
                         with c_btn:
@@ -821,6 +836,14 @@ def main():
                 <div class="feature-text">Integrity is a transformational requirement for highly sensitive research. At its core, this deck will automatically detect your Bibliography and enforce strict hanging indents, single spacing, and publication years.</div>
             </div>
             """, unsafe_allow_html=True)
+
+    # --- MAIN APP DISCLAIMER FOOTER ---
+    if st.session_state.authenticated:
+        st.markdown(f"""
+        <div class="disclaimer-text">
+            <strong>LEGAL DISCLAIMER:</strong> Any unauthorized distribution, reproduction, or dissemination of this link or its contents without the explicit notice and consent of the owner is considered illegal and strictly prohibited. Violators will be subject to appropriate legal action under the Intellectual Property Code of the Philippines (Republic Act No. 8293, Sec. 177).
+        </div>
+        """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
