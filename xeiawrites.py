@@ -191,7 +191,7 @@ def get_deep_font_properties(p, doc):
 
     return font_name, font_size
 
-# --- PDF Generator (Remains Pristine White) ---
+# --- Beautiful Web-Matched PDF Generator ---
 class PDFReceipt(FPDF):
     def header(self):
         self.set_font('Times', 'B', 28)
@@ -439,6 +439,10 @@ def analyze_document(file, exp_font, exp_size, exp_spacing, exp_indent, number_r
                     msg = f"Instead of '{found_word}', consider using <b>{suggestion}</b>.<br><span style='font-size: 0.8rem; color:#455B30; font-style:italic;'><b>Xeia's Critique:</b> {critique}</span>"
                     add_lapse("suggestions", msg, match.start(), match.end(), highlight=found_word)
 
+        if is_heading and not in_references_section:
+            if '\n' in raw_text or '\x0b' in raw_text:
+                 add_lapse("breaks", "Spacing Error: Found a manual soft break (Shift+Enter) inside title. Please remove it.")
+
         if in_references_section and not is_heading:
             if p.paragraph_format.line_spacing not in [1.0, 1]: add_lapse("ref_spacing", "Reference entry must be strictly Single Spaced.")
             if p.paragraph_format.first_line_indent is None or p.paragraph_format.first_line_indent.inches > -0.05: add_lapse("ref_indent", "Missing Hanging Indent (Highlight text > Right Click > Paragraph > Special: Hanging).")
@@ -494,7 +498,7 @@ def main():
     if 'total_paras' not in st.session_state: st.session_state.total_paras = 0
     if 'open_lapses_category' not in st.session_state: st.session_state.open_lapses_category = None
 
-    # --- Dynamic Theme Engine ---
+    # --- Dynamic Theme Engine Variables ---
     bg_color = "#1A1D1A" if st.session_state.dark_mode else "#FAFCF7"
     text_color = "#C5C9BC" if st.session_state.dark_mode else "#455B30"
     heading_color = "#FAFCF7" if st.session_state.dark_mode else "#23371D"
@@ -503,47 +507,54 @@ def main():
     box_bg = "#1A1D1A" if st.session_state.dark_mode else "rgba(250, 252, 247, 0.8)"
     menu_bg = "rgba(26, 29, 26, 0.95)" if st.session_state.dark_mode else "rgba(250, 252, 247, 0.95)"
     
+    # THE FIX: Absolute overriding of Streamlit's native `stApp` background container!
     st.markdown(f"""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,500&family=Poppins:wght@300;400;500;600&display=swap');
         
-        html {{ scroll-behavior: smooth; }}
-        html, body, [class*="css"] {{ font-family: 'Poppins', sans-serif; color: {text_color}; background-color: {bg_color}; transition: all 0.3s ease;}}
-        h1, h2, h3, h4 {{ font-family: 'Playfair Display', serif !important; color: {heading_color} !important; }}
+        /* Absolute Background Override for Night Mode */
+        [data-testid="stAppViewContainer"] {{ background-color: {bg_color} !important; transition: all 0.3s ease; }}
+        [data-testid="stHeader"] {{ background-color: transparent !important; }}
+        
+        /* Typography overrides */
+        html, body, p, span, label, div {{ font-family: 'Poppins', sans-serif; color: {text_color}; transition: color 0.3s ease; }}
+        h1, h2, h3, h4, h5, h6 {{ font-family: 'Playfair Display', serif !important; color: {heading_color} !important; }}
+        
+        /* Protect Buttons from generic overrides */
+        button[kind="primary"] * {{ color: white !important; }}
+        
+        /* Input Field styling for dark mode */
+        input {{ background-color: {card_bg} !important; color: {heading_color} !important; border-color: {card_border} !important; }}
         
         [data-testid="stSidebar"] {{ display: none !important; }}
         header {{ display: none !important; }}
         .block-container {{ padding-top: 0rem !important; max-width: 1100px; }}
         [data-testid="stStatusWidget"] {{ visibility: hidden !important; display: none !important; }}
         
-        /* LOGIN SCREEN STYLES */
-        .login-container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 70vh; text-align: center; }}
-        .login-box {{ background-color: {card_bg}; padding: 50px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); border: 1px solid {card_border}; width: 100%; max-width: 500px;}}
-        .login-title {{ font-size: 3rem; margin-bottom: 10px; color: {heading_color}; }}
-        .login-sub {{ color: #8FB3DE; font-family: 'Playfair Display', serif; font-style: italic; margin-bottom: 30px; font-size: 1.1rem; }}
-        
         /* MAIN APP STYLES */
-        .top-menu {{ display: flex; justify-content: space-between; align-items: center; padding: 15px 30px; font-size: 0.8rem; font-weight: 500; letter-spacing: 1px; color: {text_color}; border-bottom: 1px solid {card_border}; background-color: {menu_bg}; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(5px); transition: all 0.3s ease;}}
-        .top-menu a {{ text-decoration: none; color: {text_color}; transition: 0.2s; cursor: pointer; }}
-        .top-menu a:hover {{ color: #8FB3DE; }}
+        .top-menu {{ display: flex; justify-content: space-between; align-items: center; padding: 15px 30px; font-size: 0.8rem; font-weight: 500; letter-spacing: 1px; border-bottom: 1px solid {card_border}; background-color: {menu_bg}; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(5px); transition: all 0.3s ease;}}
+        .top-menu a {{ text-decoration: none; color: {text_color} !important; transition: 0.2s; cursor: pointer; }}
+        .top-menu a:hover {{ color: #8FB3DE !important; }}
         
         .hero-container {{ display: flex; flex-direction: column; align-items: center; text-align: center; width: 100%; margin-top: 30px;}}
         .hero-logo-container img {{ height: 140px; mix-blend-mode: multiply; margin-bottom: 20px; filter: {'brightness(0) invert(1) opacity(0.8)' if st.session_state.dark_mode else 'none'};}}
         .hero-title {{ font-size: 4rem; font-weight: 700; margin-bottom: 0px; letter-spacing: -1px; }}
-        .hero-subtitle {{ font-size: 1.1rem; color: #8FB3DE; font-family: 'Playfair Display', serif; font-style: italic; margin-top: 0; margin-bottom: 20px;}}
+        .hero-subtitle {{ font-size: 1.1rem; color: #8FB3DE !important; font-family: 'Playfair Display', serif; font-style: italic; margin-top: 0; margin-bottom: 20px;}}
         .hero-text {{ max-width: 600px; line-height: 1.6; margin-bottom: 50px;}}
         
         .action-box-container {{ border: 2px dashed #AEA743; border-radius: 20px; padding: 40px; background-color: {box_bg}; text-align: center; margin-bottom: 60px; position: relative; transition: all 0.3s ease;}}
-        .action-tag {{ font-family: 'Playfair Display', serif; background-color: #8FB3DE; color: white; padding: 5px 15px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; position: absolute; top: -12px; left: 50%; transform: translateX(-50%); letter-spacing: 1px;}}
+        .action-tag {{ font-family: 'Playfair Display', serif; background-color: #8FB3DE; color: white !important; padding: 5px 15px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; position: absolute; top: -12px; left: 50%; transform: translateX(-50%); letter-spacing: 1px;}}
         
         [data-testid="stExpander"] {{ background-color: {card_bg} !important; border-radius: 10px !important; border: 1px solid {card_border} !important; box-shadow: 0 4px 10px rgba(0,0,0,0.02) !important; margin-bottom: 10px; text-align: left; transition: all 0.3s ease;}}
         [data-testid="stExpander"] summary p {{ font-weight: 600 !important; color: {heading_color} !important; font-size: 0.95rem; }}
         
-        button[kind="primary"] {{ background-color: #AEA743 !important; color: white !important; border-radius: 30px; border: none; padding: 12px 35px; font-weight: 600; letter-spacing: 1px; transition: 0.3s; width: 100%; margin-top: 10px;}}
+        button[kind="primary"] {{ background-color: #AEA743 !important; border-radius: 30px; border: none; padding: 12px 35px; font-weight: 600; letter-spacing: 1px; transition: 0.3s; width: 100%; margin-top: 10px;}}
         button[kind="primary"]:hover {{ background-color: #8FB3DE !important; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(143, 179, 222, 0.2); }}
         
         button[kind="secondary"] {{ background-color: {bg_color} !important; color: #8FB3DE !important; border: 1px solid #8FB3DE !important; border-radius: 15px !important; padding: 2px 15px !important; font-size: 0.8rem !important; transition: 0.2s;}}
-        button[kind="secondary"]:hover {{ background-color: #8FB3DE !important; color: white !important; }}
+        button[kind="secondary"] * {{ color: #8FB3DE !important; }}
+        button[kind="secondary"]:hover {{ background-color: #8FB3DE !important; }}
+        button[kind="secondary"]:hover * {{ color: white !important; }}
         
         .feature-card {{ background: {card_bg}; border-radius: 15px; padding: 30px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.03); height: 100%; border-top: 4px solid; transition: all 0.3s ease;}}
         .feature-icon {{ font-size: 2.5rem; margin-bottom: 15px; }}
@@ -568,24 +579,30 @@ def main():
     """, unsafe_allow_html=True)
 
     # --- ROUTING: Login vs Main App ---
+    # THE FIX: Using clean Streamlit columns to prevent the "Ghost Box" HTML error!
     if not st.session_state.authenticated:
-        st.markdown("<div class='login-container'><div class='login-box'>", unsafe_allow_html=True)
-        try:
-            st.image("logo.png", width=90)
-        except: pass
-        st.markdown("<h1 class='login-title'>Xeia Writes</h1>", unsafe_allow_html=True)
-        st.markdown("<p class='login-sub'>Restricted Academic Portal</p>", unsafe_allow_html=True)
+        st.markdown("<br><br><br><br>", unsafe_allow_html=True)
+        c1, c2, c3 = st.columns([1.5, 2, 1.5])
         
-        auth_name = st.text_input("Enter Authorized Signature", placeholder="First Last")
-        
-        if st.button("Access Studio", type="primary"):
-            allowed_users = ["ksd bellen", "ip logroño", "jl monleon", "ej lacson"]
-            if auth_name.strip().lower() in allowed_users:
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Unauthorized signature. Access denied.")
-        st.markdown("</div></div>", unsafe_allow_html=True)
+        with c2:
+            st.markdown(f"""
+            <div style="text-align: center; background-color: {card_bg}; padding: 40px; border-radius: 20px; border: 1px solid {card_border}; box-shadow: 0 10px 30px rgba(0,0,0,0.1);">
+                <img src="logo.png" width="90" style="margin-bottom:15px; filter: {'brightness(0) invert(1) opacity(0.8)' if st.session_state.dark_mode else 'none'};" onerror="this.style.display='none'">
+                <h1 style="font-size: 3rem; margin-bottom: 0px; color: {heading_color}; font-family: 'Playfair Display', serif;">Xeia Writes</h1>
+                <p style="color: #8FB3DE !important; font-family: 'Playfair Display', serif; font-style: italic; margin-top: -10px; margin-bottom: 30px; font-size: 1.1rem;">Restricted Academic Portal</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("<div style='margin-top: -20px;'></div>", unsafe_allow_html=True) # Sneaky layout adjustment
+            auth_name = st.text_input("Enter Authorized Signature", placeholder="First Last", label_visibility="collapsed")
+            
+            if st.button("Access Studio", type="primary", use_container_width=True):
+                allowed_users = ["ksd bellen", "ip logroño", "jl monleon", "ej lacson"]
+                if auth_name.strip().lower() in allowed_users:
+                    st.session_state.authenticated = True
+                    st.rerun()
+                else:
+                    st.error("Unauthorized signature. Access denied.")
         return
 
     # --- MAIN DASHBOARD (Only executes if Authenticated) ---
@@ -607,7 +624,7 @@ def main():
             st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("<hr style='margin-top:0; border-top: 1px solid #EAEAEA;'>", unsafe_allow_html=True)
+    st.markdown(f"<hr style='margin-top:0; border-top: 1px solid {card_border};'>", unsafe_allow_html=True)
 
     st.markdown("<div id='about-section'></div>", unsafe_allow_html=True)
     st.markdown("<div class='hero-container'>", unsafe_allow_html=True)
@@ -775,7 +792,7 @@ def main():
 
     else:
         st.markdown("<div id='features-section' style='padding-top: 40px;'></div>", unsafe_allow_html=True) 
-        st.markdown(f"<h3 style='text-align: center; margin-bottom: 30px; font-size: 1.1rem; letter-spacing: 1px; color:{heading_color};'>LET'S FIGURE THIS ACADEMIC WRITING OUT TOGETHER</h3>", unsafe_allow_html=True)
+        st.markdown(f"<h3 style='text-align: center; margin-bottom: 30px; font-size: 1.1rem; letter-spacing: 1px; color:{heading_color} !important;'>LET'S FIGURE THIS ACADEMIC WRITING OUT TOGETHER</h3>", unsafe_allow_html=True)
         col_f1, col_f2, col_f3 = st.columns(3)
         with col_f1:
             st.markdown(f"""
