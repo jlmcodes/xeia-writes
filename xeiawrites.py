@@ -21,6 +21,9 @@ def clean_for_pdf(text):
     return text.encode('latin-1', 'ignore').decode('latin-1')
 
 def get_smart_snippet(text, match_start=None, match_end=None, highlight_word=None):
+    if text == "[Empty Line]":
+        return "<span style='color:#AEA743; font-weight:700;'>[Empty Line Detected]</span>"
+        
     if not text: return ""
     if match_start is None or match_end is None:
         return text[:80] + "..." if len(text) > 80 else text
@@ -188,7 +191,7 @@ def get_deep_font_properties(p, doc):
 
     return font_name, font_size
 
-# --- Beautiful Web-Matched PDF Generator ---
+# --- PDF Generator (Remains Pristine White) ---
 class PDFReceipt(FPDF):
     def header(self):
         self.set_font('Times', 'B', 28)
@@ -317,7 +320,6 @@ def generate_pdf(active_lapses, f_score, s_score, total_paras):
         pdf.set_text_color(69, 91, 48)
         pdf.cell(0, 10, 'Flawless Execution! No active lapses found.', align='C')
 
-    # THE FIX: Bulletproof encoding output to prevent Streamlit Cloud TypeError
     pdf_out = pdf.output(dest='S')
     return pdf_out.encode('latin-1') if isinstance(pdf_out, str) else bytes(pdf_out)
 
@@ -345,6 +347,25 @@ def analyze_document(file, exp_font, exp_size, exp_spacing, exp_indent, number_r
         total_paras += 1
         para_num = i + 1 
         
+        # Universal Contextual Double Enter Scanner
+        if not text:
+            if i < len(paragraphs) - 1: 
+                prev_text = paragraphs[i-1].text.strip() if i > 0 else ""
+                next_text = paragraphs[i+1].text.strip()
+                
+                prev_ctx = (prev_text[-40:] if len(prev_text) > 40 else prev_text)
+                if prev_ctx and prev_ctx != prev_text: prev_ctx = "..." + prev_ctx
+                
+                next_ctx = (next_text[:40] if len(next_text) > 40 else next_text)
+                if next_ctx and next_ctx != next_text: next_ctx = next_ctx + "..."
+                
+                context_snippet = f"{prev_ctx} <br><span style='color:#AEA743; font-weight:700;'>[Double Enter Detected Here]</span><br> {next_ctx}"
+                
+                lapse_counter[0] += 1
+                lapse_id = f"breaks_{para_num}_{lapse_counter[0]}_{uuid.uuid4().hex[:6]}"
+                lapses["breaks"].append((para_num, context_snippet, "Spacing Error: Found an extra empty line (Double Enter). Please remove it and use paragraph spacing settings instead.", lapse_id))
+            continue
+
         def add_lapse(category, msg, match_start=None, match_end=None, highlight=None):
             lapse_counter[0] += 1
             lapse_id = f"{category}_{para_num}_{lapse_counter[0]}_{uuid.uuid4().hex[:6]}"
@@ -355,6 +376,7 @@ def analyze_document(file, exp_font, exp_size, exp_spacing, exp_indent, number_r
         if cleaned_text in ["references", "bibliography", "works cited"] or (cleaned_text.endswith("references") and len(cleaned_text) < 20):
             in_references_section = True
 
+        # Heading Detection
         is_heading = False
         text_for_numbers = text
         heading_match = re.match(r'^(CHAPTER\s*\d+|[1-9](?:\.\d+[a-zA-Z]?)*)\s*[:\-]?\s*(.+)', text, re.IGNORECASE)
@@ -387,33 +409,28 @@ def analyze_document(file, exp_font, exp_size, exp_spacing, exp_indent, number_r
             
             is_bold = False
             is_italic = False
-            
             for run in p.runs:
                 if run.text.strip():
                     if run.bold: is_bold = True
                     if run.italic: is_italic = True
                     
-            if not is_bold and p.style and p.style.font and p.style.font.bold:
-                is_bold = True
-            if not is_italic and p.style and p.style.font and p.style.font.italic:
-                is_italic = True
+            if not is_bold and p.style and p.style.font and p.style.font.bold: is_bold = True
+            if not is_italic and p.style and p.style.font and p.style.font.italic: is_italic = True
                 
             if not is_bold:
                 add_lapse("headings", f"Formatting Error: The heading '{section_num} {section_title}' must be in Bold.", heading_match.start(), heading_match.end(), highlight=text)
             if is_italic:
                 add_lapse("headings", f"Formatting Error: The heading '{section_num} {section_title}' contains italicized text, which is strictly prohibited.", heading_match.start(), heading_match.end(), highlight=text)
 
+        # In-Text Citation Traps
         et_al_trap = re.search(r'\bet\.\s*al\.', cleaned_text)
-        if et_al_trap:
-            add_lapse("ref_apa", "In-text Citation Error: Use 'et al.' (no period after 'et') instead of 'et. al.'", et_al_trap.start(), et_al_trap.end(), highlight="et. al.")
+        if et_al_trap: add_lapse("ref_apa", "In-text Citation Error: Use 'et al.' (no period after 'et') instead of 'et. al.'", et_al_trap.start(), et_al_trap.end(), highlight="et. al.")
         
         missing_paren = re.search(r'\b([A-Z][a-z]+(?:\s+et\s+al\.?)?)\s+(\d{4})\b', text)
-        if missing_paren:
-            add_lapse("ref_apa", f"In-text Citation Error: APA requires parentheses around the year, e.g., '{missing_paren.group(1)} ({missing_paren.group(2)})'.", missing_paren.start(), missing_paren.end(), highlight=missing_paren.group())
+        if missing_paren: add_lapse("ref_apa", f"In-text Citation Error: APA requires parentheses around the year, e.g., '{missing_paren.group(1)} ({missing_paren.group(2)})'.", missing_paren.start(), missing_paren.end(), highlight=missing_paren.group())
             
         period_trap = re.search(r'[a-zA-Z0-9]\.\.(?!\.)', text)
-        if period_trap:
-            add_lapse("grammar", "Punctuation Error: Found double periods (..) where a single period is expected.", period_trap.start(), period_trap.end(), highlight="..")
+        if period_trap: add_lapse("grammar", "Punctuation Error: Found double periods (..) where a single period is expected.", period_trap.start(), period_trap.end(), highlight="..")
 
         if not is_heading and not in_references_section:
             for pattern, (suggestion, context, critique) in xeia_lexicon.items():
@@ -422,16 +439,11 @@ def analyze_document(file, exp_font, exp_size, exp_spacing, exp_indent, number_r
                     msg = f"Instead of '{found_word}', consider using <b>{suggestion}</b>.<br><span style='font-size: 0.8rem; color:#455B30; font-style:italic;'><b>Xeia's Critique:</b> {critique}</span>"
                     add_lapse("suggestions", msg, match.start(), match.end(), highlight=found_word)
 
-        if is_heading and not in_references_section:
-            if '\n' in raw_text or '\x0b' in raw_text:
-                 add_lapse("breaks", "Spacing Error: Found a manual soft break (Shift+Enter) inside title. Please remove it.")
-
         if in_references_section and not is_heading:
             if p.paragraph_format.line_spacing not in [1.0, 1]: add_lapse("ref_spacing", "Reference entry must be strictly Single Spaced.")
             if p.paragraph_format.first_line_indent is None or p.paragraph_format.first_line_indent.inches > -0.05: add_lapse("ref_indent", "Missing Hanging Indent (Highlight text > Right Click > Paragraph > Special: Hanging).")
             if not text.startswith("http"):
-                if not re.search(r'\(\d{4}[a-z]?\)|\(n\.d\.?\)', text, re.IGNORECASE):
-                    add_lapse("ref_apa", "APA format requires a year, e.g., (2024) or (n.d.).")
+                if not re.search(r'\(\d{4}[a-z]?\)|\(n\.d\.?\)', text, re.IGNORECASE): add_lapse("ref_apa", "APA format requires a year, e.g., (2024) or (n.d.).")
             continue 
 
         if number_rule:
@@ -472,78 +484,130 @@ def analyze_document(file, exp_font, exp_size, exp_spacing, exp_indent, number_r
 
     return total_paras, lapses
 
-# --- Main App Logic ---
+# --- Master Application ---
 def main():
-    st.markdown("""
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,500&family=Poppins:wght@300;400;500;600&display=swap');
-        
-        html { scroll-behavior: smooth; }
-        html, body, [class*="css"] { font-family: 'Poppins', sans-serif; color: #455B30; background-color: #FAFCF7;}
-        h1, h2, h3, h4 { font-family: 'Playfair Display', serif !important; color: #23371D !important; }
-        
-        [data-testid="stSidebar"] { display: none !important; }
-        header { display: none !important; }
-        .block-container { padding-top: 0rem !important; max-width: 1100px; }
-        [data-testid="stStatusWidget"] { visibility: hidden !important; display: none !important; }
-        
-        .top-menu { display: flex; justify-content: space-between; align-items: center; padding: 15px 30px; font-size: 0.8rem; font-weight: 500; letter-spacing: 1px; color: #455B30; border-bottom: 1px solid #EAEAEA; background-color: rgba(250, 252, 247, 0.95); position: sticky; top: 0; z-index: 100; backdrop-filter: blur(5px);}
-        .top-menu a { text-decoration: none; color: #455B30; transition: 0.2s; cursor: pointer; }
-        .top-menu a:hover { color: #8FB3DE; }
-        
-        .hero-container { display: flex; flex-direction: column; align-items: center; text-align: center; width: 100%; margin-top: 30px;}
-        .hero-logo-container img { height: 140px; mix-blend-mode: multiply; margin-bottom: 20px;}
-        .hero-title { font-size: 4rem; font-weight: 700; margin-bottom: 0px; letter-spacing: -1px; color: #23371D;}
-        .hero-subtitle { font-size: 1.1rem; color: #8FB3DE; font-family: 'Playfair Display', serif; font-style: italic; margin-top: 0; margin-bottom: 20px;}
-        .hero-text { max-width: 600px; color: #455B30; line-height: 1.6; margin-bottom: 50px;}
-        
-        .action-box-container { border: 2px dashed #AEA743; border-radius: 20px; padding: 40px; background-color: rgba(250, 252, 247, 0.8); text-align: center; margin-bottom: 60px; position: relative;}
-        .action-tag { font-family: 'Playfair Display', serif; background-color: #8FB3DE; color: white; padding: 5px 15px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; position: absolute; top: -12px; left: 50%; transform: translateX(-50%); letter-spacing: 1px;}
-        
-        [data-testid="stExpander"] { background-color: white !important; border-radius: 10px !important; border: 1px solid #EAEAEA !important; box-shadow: 0 4px 10px rgba(0,0,0,0.02) !important; margin-bottom: 10px; text-align: left; }
-        [data-testid="stExpander"] summary p { font-weight: 600 !important; color: #23371D !important; font-size: 0.95rem; }
-        
-        button[kind="primary"] { background-color: #AEA743 !important; color: white !important; border-radius: 30px; border: none; padding: 12px 35px; font-weight: 600; letter-spacing: 1px; transition: 0.3s; width: 100%; margin-top: 10px;}
-        button[kind="primary"]:hover { background-color: #23371D !important; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(35, 55, 29, 0.2); }
-        
-        button[kind="secondary"] { background-color: #FAFCF7 !important; color: #8FB3DE !important; border: 1px solid #8FB3DE !important; border-radius: 15px !important; padding: 2px 15px !important; font-size: 0.8rem !important; transition: 0.2s;}
-        button[kind="secondary"]:hover { background-color: #8FB3DE !important; color: white !important; }
-        
-        .feature-card { background: white; border-radius: 15px; padding: 30px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.03); height: 100%; border-top: 4px solid;}
-        .feature-icon { font-size: 2.5rem; margin-bottom: 15px; }
-        .feature-title { font-family: 'Playfair Display', serif; font-size: 1.3rem; font-weight: 700; color: #23371D; margin-bottom: 10px;}
-        .feature-text { font-size: 0.85rem; color: #455B30; line-height: 1.5; }
-        
-        .finding-box { background-color: white; padding: 15px; margin-bottom: 10px; border-radius: 8px; border-left: 4px solid; box-shadow: 0 2px 5px rgba(0,0,0,0.02);}
-        .mail-card { background: linear-gradient(145deg, #FFFDF5, #FAFCF7); padding: 15px; margin-bottom: 15px; border-radius: 10px; border: 1px solid #E2C785; box-shadow: 0 4px 10px rgba(174, 167, 67, 0.1); border-left: 5px solid #AEA743;}
-        
-        .metric-card { padding: 10px 5px; }
-        .metric-title { font-size: 0.85rem; color: #455B30; font-weight: 600; text-transform: uppercase; margin-bottom: -5px;}
-        .metric-value { font-family: 'Playfair Display', serif; font-size: 2.5rem; color: #23371D; line-height: 1.2;}
-        .progress-bg { width: 100%; background-color: #EAEAEA; border-radius: 10px; height: 6px; margin-top: 5px; overflow: hidden;}
-        
-        .magic-dots { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 15px; padding-bottom: 5px;}
-        .magic-dots div { width: 12px; height: 12px; border-radius: 50%; background-color: #AEA743; animation: pixie-bounce 1.4s infinite ease-in-out both; box-shadow: 0 0 10px #AEA743; }
-        .magic-dots div:nth-child(1) { animation-delay: -0.32s; background-color: #8FB3DE; box-shadow: 0 0 10px #8FB3DE;}
-        .magic-dots div:nth-child(2) { animation-delay: -0.16s; background-color: #455B30; box-shadow: 0 0 10px #455B30;}
-        @keyframes pixie-bounce { 0%, 80%, 100% { transform: scale(0.4); opacity: 0.3; } 40% { transform: scale(1.2); opacity: 1; } }
-        .loading-label { text-align: center; font-family: 'Playfair Display', serif; font-style: italic; color: #23371D; margin-top: 5px; margin-bottom: 10px; font-size: 1.1rem; }
-    </style>
-    """, unsafe_allow_html=True)
-
+    # --- Authentication & State Management ---
+    if 'authenticated' not in st.session_state: st.session_state.authenticated = False
+    if 'dark_mode' not in st.session_state: st.session_state.dark_mode = False
     if 'ignored_lapses' not in st.session_state: st.session_state.ignored_lapses = set()
     if 'analysis_results' not in st.session_state: st.session_state.analysis_results = None
     if 'total_paras' not in st.session_state: st.session_state.total_paras = 0
     if 'open_lapses_category' not in st.session_state: st.session_state.open_lapses_category = None
 
-    st.markdown("""
-        <div class="top-menu">
-            <a href="#about-section">(ABOUT)</a>
-            <a href="#configuration-section">(CONFIGURATION)</a>
-            <a href="#analysis-section">(ANALYSIS)</a>
-            <a href="#features-section">(FEATURES)</a>
-        </div>
+    # --- Dynamic Theme Engine ---
+    bg_color = "#1A1D1A" if st.session_state.dark_mode else "#FAFCF7"
+    text_color = "#C5C9BC" if st.session_state.dark_mode else "#455B30"
+    heading_color = "#FAFCF7" if st.session_state.dark_mode else "#23371D"
+    card_bg = "#262B26" if st.session_state.dark_mode else "white"
+    card_border = "#455B30" if st.session_state.dark_mode else "#EAEAEA"
+    box_bg = "#1A1D1A" if st.session_state.dark_mode else "rgba(250, 252, 247, 0.8)"
+    menu_bg = "rgba(26, 29, 26, 0.95)" if st.session_state.dark_mode else "rgba(250, 252, 247, 0.95)"
+    
+    st.markdown(f"""
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,500&family=Poppins:wght@300;400;500;600&display=swap');
+        
+        html {{ scroll-behavior: smooth; }}
+        html, body, [class*="css"] {{ font-family: 'Poppins', sans-serif; color: {text_color}; background-color: {bg_color}; transition: all 0.3s ease;}}
+        h1, h2, h3, h4 {{ font-family: 'Playfair Display', serif !important; color: {heading_color} !important; }}
+        
+        [data-testid="stSidebar"] {{ display: none !important; }}
+        header {{ display: none !important; }}
+        .block-container {{ padding-top: 0rem !important; max-width: 1100px; }}
+        [data-testid="stStatusWidget"] {{ visibility: hidden !important; display: none !important; }}
+        
+        /* LOGIN SCREEN STYLES */
+        .login-container {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 70vh; text-align: center; }}
+        .login-box {{ background-color: {card_bg}; padding: 50px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); border: 1px solid {card_border}; width: 100%; max-width: 500px;}}
+        .login-title {{ font-size: 3rem; margin-bottom: 10px; color: {heading_color}; }}
+        .login-sub {{ color: #8FB3DE; font-family: 'Playfair Display', serif; font-style: italic; margin-bottom: 30px; font-size: 1.1rem; }}
+        
+        /* MAIN APP STYLES */
+        .top-menu {{ display: flex; justify-content: space-between; align-items: center; padding: 15px 30px; font-size: 0.8rem; font-weight: 500; letter-spacing: 1px; color: {text_color}; border-bottom: 1px solid {card_border}; background-color: {menu_bg}; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(5px); transition: all 0.3s ease;}}
+        .top-menu a {{ text-decoration: none; color: {text_color}; transition: 0.2s; cursor: pointer; }}
+        .top-menu a:hover {{ color: #8FB3DE; }}
+        
+        .hero-container {{ display: flex; flex-direction: column; align-items: center; text-align: center; width: 100%; margin-top: 30px;}}
+        .hero-logo-container img {{ height: 140px; mix-blend-mode: multiply; margin-bottom: 20px; filter: {'brightness(0) invert(1) opacity(0.8)' if st.session_state.dark_mode else 'none'};}}
+        .hero-title {{ font-size: 4rem; font-weight: 700; margin-bottom: 0px; letter-spacing: -1px; }}
+        .hero-subtitle {{ font-size: 1.1rem; color: #8FB3DE; font-family: 'Playfair Display', serif; font-style: italic; margin-top: 0; margin-bottom: 20px;}}
+        .hero-text {{ max-width: 600px; line-height: 1.6; margin-bottom: 50px;}}
+        
+        .action-box-container {{ border: 2px dashed #AEA743; border-radius: 20px; padding: 40px; background-color: {box_bg}; text-align: center; margin-bottom: 60px; position: relative; transition: all 0.3s ease;}}
+        .action-tag {{ font-family: 'Playfair Display', serif; background-color: #8FB3DE; color: white; padding: 5px 15px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; position: absolute; top: -12px; left: 50%; transform: translateX(-50%); letter-spacing: 1px;}}
+        
+        [data-testid="stExpander"] {{ background-color: {card_bg} !important; border-radius: 10px !important; border: 1px solid {card_border} !important; box-shadow: 0 4px 10px rgba(0,0,0,0.02) !important; margin-bottom: 10px; text-align: left; transition: all 0.3s ease;}}
+        [data-testid="stExpander"] summary p {{ font-weight: 600 !important; color: {heading_color} !important; font-size: 0.95rem; }}
+        
+        button[kind="primary"] {{ background-color: #AEA743 !important; color: white !important; border-radius: 30px; border: none; padding: 12px 35px; font-weight: 600; letter-spacing: 1px; transition: 0.3s; width: 100%; margin-top: 10px;}}
+        button[kind="primary"]:hover {{ background-color: #8FB3DE !important; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(143, 179, 222, 0.2); }}
+        
+        button[kind="secondary"] {{ background-color: {bg_color} !important; color: #8FB3DE !important; border: 1px solid #8FB3DE !important; border-radius: 15px !important; padding: 2px 15px !important; font-size: 0.8rem !important; transition: 0.2s;}}
+        button[kind="secondary"]:hover {{ background-color: #8FB3DE !important; color: white !important; }}
+        
+        .feature-card {{ background: {card_bg}; border-radius: 15px; padding: 30px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.03); height: 100%; border-top: 4px solid; transition: all 0.3s ease;}}
+        .feature-icon {{ font-size: 2.5rem; margin-bottom: 15px; }}
+        .feature-title {{ font-family: 'Playfair Display', serif; font-size: 1.3rem; font-weight: 700; color: {heading_color}; margin-bottom: 10px;}}
+        .feature-text {{ font-size: 0.85rem; line-height: 1.5; }}
+        
+        .finding-box {{ background-color: {card_bg}; padding: 15px; margin-bottom: 10px; border-radius: 8px; border-left: 4px solid; box-shadow: 0 2px 5px rgba(0,0,0,0.02); transition: all 0.3s ease;}}
+        .mail-card {{ background: {card_bg}; padding: 15px; margin-bottom: 15px; border-radius: 10px; border: 1px solid #E2C785; box-shadow: 0 4px 10px rgba(174, 167, 67, 0.1); border-left: 5px solid #AEA743; transition: all 0.3s ease;}}
+        
+        .metric-card {{ padding: 10px 5px; }}
+        .metric-title {{ font-size: 0.85rem; font-weight: 600; text-transform: uppercase; margin-bottom: -5px;}}
+        .metric-value {{ font-family: 'Playfair Display', serif; font-size: 2.5rem; color: {heading_color}; line-height: 1.2;}}
+        .progress-bg {{ width: 100%; background-color: {card_border}; border-radius: 10px; height: 6px; margin-top: 5px; overflow: hidden;}}
+        
+        .magic-dots {{ display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 15px; padding-bottom: 5px;}}
+        .magic-dots div {{ width: 12px; height: 12px; border-radius: 50%; background-color: #AEA743; animation: pixie-bounce 1.4s infinite ease-in-out both; box-shadow: 0 0 10px #AEA743; }}
+        .magic-dots div:nth-child(1) {{ animation-delay: -0.32s; background-color: #8FB3DE; box-shadow: 0 0 10px #8FB3DE;}}
+        .magic-dots div:nth-child(2) {{ animation-delay: -0.16s; background-color: #455B30; box-shadow: 0 0 10px #455B30;}}
+        @keyframes pixie-bounce {{ 0%, 80%, 100% {{ transform: scale(0.4); opacity: 0.3; }} 40% {{ transform: scale(1.2); opacity: 1; }} }}
+        .loading-label {{ text-align: center; font-family: 'Playfair Display', serif; font-style: italic; color: {heading_color}; margin-top: 5px; margin-bottom: 10px; font-size: 1.1rem; }}
+    </style>
     """, unsafe_allow_html=True)
+
+    # --- ROUTING: Login vs Main App ---
+    if not st.session_state.authenticated:
+        st.markdown("<div class='login-container'><div class='login-box'>", unsafe_allow_html=True)
+        try:
+            st.image("logo.png", width=90)
+        except: pass
+        st.markdown("<h1 class='login-title'>Xeia Writes</h1>", unsafe_allow_html=True)
+        st.markdown("<p class='login-sub'>Restricted Academic Portal</p>", unsafe_allow_html=True)
+        
+        auth_name = st.text_input("Enter Authorized Signature", placeholder="First Last")
+        
+        if st.button("Access Studio", type="primary"):
+            allowed_users = ["ksd bellen", "ip logroño", "jl monleon", "ej lacson"]
+            if auth_name.strip().lower() in allowed_users:
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Unauthorized signature. Access denied.")
+        st.markdown("</div></div>", unsafe_allow_html=True)
+        return
+
+    # --- MAIN DASHBOARD (Only executes if Authenticated) ---
+    c_menu, c_toggle = st.columns([8, 2])
+    with c_menu:
+        st.markdown("""
+            <div class="top-menu" style="background:transparent; border:none; padding:10px 0;">
+                <a href="#about-section">(ABOUT)</a>
+                <a href="#configuration-section">(CONFIGURATION)</a>
+                <a href="#analysis-section">(ANALYSIS)</a>
+                <a href="#features-section">(FEATURES)</a>
+            </div>
+        """, unsafe_allow_html=True)
+    with c_toggle:
+        st.markdown("<div style='margin-top: 5px; display:flex; justify-content:flex-end;'>", unsafe_allow_html=True)
+        dark_toggle = st.toggle("🌙 Night Mode", value=st.session_state.dark_mode)
+        if dark_toggle != st.session_state.dark_mode:
+            st.session_state.dark_mode = dark_toggle
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<hr style='margin-top:0; border-top: 1px solid #EAEAEA;'>", unsafe_allow_html=True)
 
     st.markdown("<div id='about-section'></div>", unsafe_allow_html=True)
     st.markdown("<div class='hero-container'>", unsafe_allow_html=True)
@@ -551,10 +615,9 @@ def main():
         st.markdown("<div class='hero-logo-container'>", unsafe_allow_html=True)
         st.image("logo.png", width=120)
         st.markdown("</div>", unsafe_allow_html=True)
-    except:
-        pass 
+    except: pass 
         
-    st.markdown("""
+    st.markdown(f"""
         <h1 class="hero-title">Xeia Writes</h1>
         <p class="hero-subtitle">a new academic paradigm</p>
         <p class="hero-text">Join the journey towards better understanding your documents, beautifully formatting your feasibility studies, and unapologetically maintaining pristine APA references.</p>
@@ -655,12 +718,12 @@ def main():
             </div>
             """, unsafe_allow_html=True)
             
-        st.markdown("<hr style='border: 1px solid #EAEAEA;'>", unsafe_allow_html=True)
+        st.markdown(f"<hr style='border: 1px solid {card_border};'>", unsafe_allow_html=True)
 
         col_lapses, col_side = st.columns([2.5, 1])
 
         with col_lapses:
-            st.markdown("<h2 style='color:#23371D;'>Detailed Lapses Dashboard</h2>", unsafe_allow_html=True)
+            st.markdown(f"<h2 style='color:{heading_color};'>Detailed Lapses Dashboard</h2>", unsafe_allow_html=True)
             
             def render_interactive_section(title, color, data, cat_key):
                 is_open = (st.session_state.open_lapses_category == cat_key)
@@ -670,7 +733,7 @@ def main():
                         para, snippet, msg, lapse_id = lapse
                         c_text, c_btn = st.columns([6, 1])
                         with c_text:
-                            st.markdown(f"<div class='finding-box' style='border-left-color:{color};'><strong>Paragraph {para}:</strong> <span style='color: #23371D;'>{msg}</span><br><span style='color: #8FB3DE; font-size: 0.85rem;'>\"{snippet}\"</span></div>", unsafe_allow_html=True)
+                            st.markdown(f"<div class='finding-box' style='border-left-color:{color};'><strong>Paragraph {para}:</strong> <span style='color: {heading_color};'>{msg}</span><br><span style='color: #8FB3DE; font-size: 0.85rem;'>\"{snippet}\"</span></div>", unsafe_allow_html=True)
                         with c_btn:
                             st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True) 
                             st.button("Ignore", key=f"btn_ign_{lapse_id}", on_click=ignore_lapse, args=(lapse_id, cat_key), use_container_width=True, type="secondary")
@@ -679,14 +742,14 @@ def main():
             if active_lapses["spelling"]: render_interactive_section("Spelling & Typos", "#C5C9BC", active_lapses["spelling"], "spelling")
             if active_lapses["grammar"]: render_interactive_section("Basic Grammar (Repetitions & Punctuation)", "#C5C9BC", active_lapses["grammar"], "grammar")
             if active_lapses["breaks"]: render_interactive_section("Structural Breaks (Lines)", "#8FB3DE", active_lapses["breaks"], "breaks")
-            if active_lapses["ref_apa"]: render_interactive_section("References: APA Format", "#23371D", active_lapses["ref_apa"], "ref_apa")
-            if active_lapses["ref_indent"]: render_interactive_section("References: Hanging Indents", "#23371D", active_lapses["ref_indent"], "ref_indent")
-            if active_lapses["ref_spacing"]: render_interactive_section("References: Single Spacing", "#23371D", active_lapses["ref_spacing"], "ref_spacing")
+            if active_lapses["ref_apa"]: render_interactive_section("References: APA Format", "#23371D" if not st.session_state.dark_mode else "#A0AAB2", active_lapses["ref_apa"], "ref_apa")
+            if active_lapses["ref_indent"]: render_interactive_section("References: Hanging Indents", "#23371D" if not st.session_state.dark_mode else "#A0AAB2", active_lapses["ref_indent"], "ref_indent")
+            if active_lapses["ref_spacing"]: render_interactive_section("References: Single Spacing", "#23371D" if not st.session_state.dark_mode else "#A0AAB2", active_lapses["ref_spacing"], "ref_spacing")
             if active_lapses["font_name"]: render_interactive_section("Font Style Deviations", "#455B30", active_lapses["font_name"], "font_name")
             if active_lapses["font_size"]: render_interactive_section("Font Size Deviations", "#455B30", active_lapses["font_size"], "font_size")
             if active_lapses["spacing"]: render_interactive_section("Line Spacing Deviations", "#AEA743", active_lapses["spacing"], "spacing")
             if active_lapses["indentation"]: render_interactive_section("Indentation Deviations", "#AEA743", active_lapses["indentation"], "indentation")
-            if active_lapses["numbers"]: render_interactive_section("Number Rule (0-9) Lapses", "#23371D", active_lapses["numbers"], "numbers")
+            if active_lapses["numbers"]: render_interactive_section("Number Rule (0-9) Lapses", "#23371D" if not st.session_state.dark_mode else "#A0AAB2", active_lapses["numbers"], "numbers")
 
             if (active_fmt_count + active_str_count) == 0 and st.session_state.total_paras > 0:
                  st.success("✨ Flawless execution! All rules are conformed to (or safely ignored).")
@@ -704,7 +767,7 @@ def main():
                         st.markdown(f"""
                         <div class='mail-card'>
                             <strong>Paragraph {para}</strong><br>
-                            <span style='color: #23371D; font-size: 0.9rem;'>{msg}</span><br>
+                            <span style='color: {heading_color}; font-size: 0.9rem;'>{msg}</span><br>
                             <span style='color: #A0AAB2; font-size: 0.8rem; font-style:italic;'>"{snippet}"</span>
                         </div>
                         """, unsafe_allow_html=True)
@@ -712,11 +775,11 @@ def main():
 
     else:
         st.markdown("<div id='features-section' style='padding-top: 40px;'></div>", unsafe_allow_html=True) 
-        st.markdown("<h3 style='text-align: center; margin-bottom: 30px; font-size: 1.1rem; letter-spacing: 1px;'>LET'S FIGURE THIS ACADEMIC WRITING OUT TOGETHER</h3>", unsafe_allow_html=True)
+        st.markdown(f"<h3 style='text-align: center; margin-bottom: 30px; font-size: 1.1rem; letter-spacing: 1px; color:{heading_color};'>LET'S FIGURE THIS ACADEMIC WRITING OUT TOGETHER</h3>", unsafe_allow_html=True)
         col_f1, col_f2, col_f3 = st.columns(3)
         with col_f1:
-            st.markdown("""
-            <div class="feature-card" style="border-top-color: #8FB3DE; background-color: #F4F7FC;">
+            st.markdown(f"""
+            <div class="feature-card" style="border-top-color: #8FB3DE; background-color: {'#1D232A' if st.session_state.dark_mode else '#F4F7FC'};">
                 <div class="feature-icon">📏</div>
                 <div style="font-size: 0.75rem; font-weight: 600; color: #8FB3DE; margin-bottom: 5px;">THE FORMATTING DECK</div>
                 <div class="feature-title">Consistency Engine</div>
@@ -724,8 +787,8 @@ def main():
             </div>
             """, unsafe_allow_html=True)
         with col_f2:
-            st.markdown("""
-            <div class="feature-card" style="border-top-color: #AEA743; background-color: #FDFCEF;">
+            st.markdown(f"""
+            <div class="feature-card" style="border-top-color: #AEA743; background-color: {'#2A2A1A' if st.session_state.dark_mode else '#FDFCEF'};">
                 <div class="feature-icon">🪶</div>
                 <div style="font-size: 0.75rem; font-weight: 600; color: #AEA743; margin-bottom: 5px;">THE LANGUAGE DECK</div>
                 <div class="feature-title">Structure & Flow</div>
@@ -733,8 +796,8 @@ def main():
             </div>
             """, unsafe_allow_html=True)
         with col_f3:
-            st.markdown("""
-            <div class="feature-card" style="border-top-color: #455B30; background-color: #F5F7F3;">
+            st.markdown(f"""
+            <div class="feature-card" style="border-top-color: #455B30; background-color: {'#1A201A' if st.session_state.dark_mode else '#F5F7F3'};">
                 <div class="feature-icon">📑</div>
                 <div style="font-size: 0.75rem; font-weight: 600; color: #455B30; margin-bottom: 5px;">THE INTEGRITY DECK</div>
                 <div class="feature-title">APA Validations</div>
